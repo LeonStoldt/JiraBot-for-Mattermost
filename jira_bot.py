@@ -41,7 +41,8 @@ def getAdjustDict():
                    '\(\*\)': u'\u200b:star:\u200b',
                    '\(\*y\)': u'\u200b:star:\u200b',
                    '\n # ': '\n 1. ',
-                   '(\![\w\-_\.äüö]+\.\w+\!)': '\\1'}
+                   '(\![\w\-_\.äüö]+\.\w+\!)': '\\1',
+                   '!([\w\s]*\.\w+)\|thumbnail!': '\\1'}
     return adjust_dict
 
 
@@ -136,9 +137,12 @@ def readJSON():
 
 
 def writeJSON():
-    with open(webhook.pathToFile, "w") as write_file:
-        print("file = {}".format(str(file)))
-        json.dump(file, write_file)
+    try:
+        with open(webhook.pathToFile, "w") as write_file:
+            print("file = {}".format(str(file)))
+            json.dump(file, write_file)
+    except Exception as inst:
+        print(inst.args)
 
 
 def print_exception_details(entry, inst, issue_as_string):
@@ -221,11 +225,11 @@ def checkAttachmentChanges(entry, issue_as_string):
     return attachment_string, attachment_included
 
 
-def checkDescriptionChanges(entry, issue_as_string):
+def checkDescriptionChanges(entry, issue_as_string, issue):
     global description_string
     if entry.field == 'description':
         try:
-            newDescription = adjustSyntax(entry.toString)
+            newDescription = adjustSyntax(issue.fields.description)
             description_string = getDescriptionChangedString(newDescription)
         except Exception as inst:
             print_exception_details(entry, inst, issue_as_string)
@@ -269,7 +273,7 @@ def get_changes(entry):
     return entry.fromString, entry.toString
 
 
-def checkForUpdates(historyItem, assignee, status, issue_as_string):
+def checkForUpdates(historyItem, assignee, status, issue_as_string, issue):
     global status_included, assignee_included, attachment_included, attachments, status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string
 
     if webhook.postStatus and not status_included:
@@ -282,7 +286,7 @@ def checkForUpdates(historyItem, assignee, status, issue_as_string):
         attachment_string, attachment_included = checkAttachmentChanges(historyItem, issue_as_string)
 
     if webhook.postDescription:
-        description_string = checkDescriptionChanges(historyItem, issue_as_string)
+        description_string = checkDescriptionChanges(historyItem, issue_as_string, issue)
 
     if webhook.postUXDesign:
         ux_string = checkUXDesignChanges(historyItem, issue_as_string)
@@ -324,7 +328,7 @@ def iterate_through_issues():
             priority_picture = getPictureString(issue.fields.priority.iconUrl, issue.fields.priority.name)
             issue_link = webhook.jqlQueryString + issue_as_string
             init_message_with_title(issue, issue_as_string, issue_link, priority_picture)
-            iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status)
+            iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status, issue)
             append_string = construct_append_string(assignee_string, attachment_included, attachment_string,
                                                     description_string, issue, issueType_string, last_viewed_formatted,
                                                     priority_string, status_string, ux_string)
@@ -345,13 +349,13 @@ def construct_append_string(assignee_string, attachment_included, attachment_str
     return append_string
 
 
-def iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status):
+def iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status, issue):
     global status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string, attachment_included
     for item in (history for history in selectedIssue.changelog.histories if
                  formatDate(history.created) > last_viewed_formatted):
         for selectedItem in item.items:
             status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string, attachment_included = checkForUpdates(
-                selectedItem, assignee, status, issue_as_string)
+                selectedItem, assignee, status, issue_as_string, issue)
 
 
 def init_message_with_title(issue, issue_as_string, issue_link, priority_picture):
