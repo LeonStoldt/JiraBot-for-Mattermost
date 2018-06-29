@@ -62,7 +62,8 @@ def getAssigneeString(current_avatar_link, current_username):
 
 
 def getAssigneeChangedString(old_avatar_link, old_username, new_avatar_link, new_username):
-    return '\n #### Bearbeiter: von {} @{} zu {} @{} \n'.format(old_avatar_link, old_username, new_avatar_link, new_username)
+    return '\n #### Bearbeiter: von {} @{} zu {} @{} \n'.format(old_avatar_link, old_username, new_avatar_link,
+                                                                new_username)
 
 
 def getDescriptionChangedString(description):
@@ -74,7 +75,7 @@ def getUXDesignChangedString(link):
 
 
 def changeString(field, old, new):
-    return '\n #### {}: von {} zu {} \n'.format(field, old, new)
+    return '\n #### {}: von ~~{}~~ zu {} \n'.format(field, old, new)
 
 
 def getTitleString(picture, issue_as_string, link_to_issue, summary):
@@ -187,10 +188,11 @@ def checkAssigneeChanges(entry, assignee, issue_as_string):
         try:
             if entry.fromString is not None:
                 oldAssignee = jira.search_users(entry.fromString)[0].key
-                assignee_string = getAssigneeChangedString(getPictureString(default_avatar_url + oldAssignee, oldAssignee),
-                                                             oldAssignee,
-                                                             getPictureString(default_avatar_url + assignee, assignee),
-                                                             assignee)
+                assignee_string = getAssigneeChangedString(
+                    getPictureString(default_avatar_url + oldAssignee, oldAssignee),
+                    oldAssignee,
+                    getPictureString(default_avatar_url + assignee, assignee),
+                    assignee)
 
                 assignee_mentioned = True
         except Exception as inst:
@@ -296,12 +298,7 @@ def checkForUpdates(historyItem, assignee, status, issue_as_string):
 
 def init_global_vars():
     global seperator, message, status_included, assignee_included, attachment_included, attachments, status_string, assignee_string, attachment_string, description_string, comments_string, ux_string, issueType_string, priority_string
-    status_included = False
-    assignee_included = False
-    attachment_included = False
-    attachments = []
     seperator = '___'
-    status_string, assignee_string, attachment_string, description_string, comments_string, ux_string, issueType_string, priority_string = '', '', '', '', '', '', '', ''
 
 
 def init_jira():
@@ -315,7 +312,7 @@ def init_mattermost_driver():
 
 
 def iterate_through_issues():
-    global message, status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string, attachment_included, comments_string
+    global message, status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string, attachment_included, comments_string, status_included, assignee_included, attachments
     for selectedIssue in jira.search_issues(webhook.projectSearchString, maxResults=webhook.maxResults,
                                             expand=webhook.expand):
         issue = jira.issue(str(selectedIssue))
@@ -323,26 +320,55 @@ def iterate_through_issues():
         assignee, status = getStatusAndAssignee(issue)
         if formatDate(issue.fields.updated) > last_viewed_formatted:
             issue_as_string = str(issue)
-            message = '' + getTitleString(getPictureString(issue.fields.priority.iconUrl, issue.fields.priority.name),
-                                          issue_as_string,
-                                          webhook.jqlQueryString + issue_as_string,
-                                          str(issue.fields.summary))
-
-            for item in (history for history in selectedIssue.changelog.histories if
-                         formatDate(history.created) > last_viewed_formatted):
-                for selectedItem in item.items:
-                    status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string, attachment_included = checkForUpdates(
-                        selectedItem, assignee, status, issue_as_string)
-            if webhook.postComments:
-                comments_string = checkNewComments(issue, last_viewed_formatted)
-            if attachment_included:
-                append_attachment = getAttachmentString() + attachment_string
-            else:
-                append_attachment = ''
-            append_string = status_string + assignee_string + append_attachment + description_string + comments_string + ux_string + issueType_string + priority_string
+            reset_variables()
+            priority_picture = getPictureString(issue.fields.priority.iconUrl, issue.fields.priority.name)
+            issue_link = webhook.jqlQueryString + issue_as_string
+            init_message_with_title(issue, issue_as_string, issue_link, priority_picture)
+            iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status)
+            append_string = construct_append_string(assignee_string, attachment_included, attachment_string,
+                                                    description_string, issue, issueType_string, last_viewed_formatted,
+                                                    priority_string, status_string, ux_string)
             message = message + append_string
-            print(message)
-        # sendMattermost(driver, message)
+            sendMattermost(driver, message)
+
+
+def construct_append_string(assignee_string, attachment_included, attachment_string, description_string, issue,
+                            issueType_string, last_viewed_formatted, priority_string, status_string, ux_string):
+    global comments_string
+    if webhook.postComments:
+        comments_string = checkNewComments(issue, last_viewed_formatted)
+    if attachment_included:
+        append_attachment = getAttachmentString() + attachment_string
+    else:
+        append_attachment = ''
+    append_string = priority_string + issueType_string + status_string + assignee_string + ux_string + description_string + comments_string + append_attachment
+    return append_string
+
+
+def iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status):
+    global status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string, attachment_included
+    for item in (history for history in selectedIssue.changelog.histories if
+                 formatDate(history.created) > last_viewed_formatted):
+        for selectedItem in item.items:
+            status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string, attachment_included = checkForUpdates(
+                selectedItem, assignee, status, issue_as_string)
+
+
+def init_message_with_title(issue, issue_as_string, issue_link, priority_picture):
+    global message
+    message = '' + getTitleString(priority_picture,
+                                  issue_as_string,
+                                  issue_link,
+                                  str(issue.fields.summary))
+
+
+def reset_variables():
+    global status_string, assignee_string, attachment_string, description_string, comments_string, ux_string, issueType_string, priority_string, status_included, assignee_included, attachment_included, attachments
+    status_string, assignee_string, attachment_string, description_string, comments_string, ux_string, issueType_string, priority_string = '', '', '', '', '', '', '', ''
+    status_included = False
+    assignee_included = False
+    attachment_included = False
+    attachments = []
 
 
 if __name__ == '__main__':
