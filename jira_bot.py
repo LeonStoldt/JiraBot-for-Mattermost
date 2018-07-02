@@ -17,8 +17,8 @@ def getAdjustDict():
                    'h4\. ': '### ',
                    'h5\. ': '#### ',
                    'h6\. ': '#### ',
-                   '\*(\w+)\*': '**\\1**',
-                   '-(\w+)-': '~~\\1~~',
+                   '\s+\*(\w+)\*\s+': '**\\1**',
+                   '\s+-(\w+)-\s+': '~~\\1~~',
                    '\?\?(\w+)\?\?': '--\\1',
                    '{{(\w+)}}': '`\\1`',
                    '\[([\w \-\&":,;_\.\+]+)\|([\w\/\.:\-\?=&#\+]+)\]': '[\\1](\\2)',
@@ -42,12 +42,16 @@ def getAdjustDict():
                    '\(\*y\)': u'\u200b:star:\u200b',
                    '\n # ': '\n 1. ',
                    '(\![\w\-_\.äüö]+\.\w+\!)': '\\1',
-                   '!([\w\s]*\.\w+)\|thumbnail!': '\\1'}
+                   '!([\w\s\W]*\.\w+)\|thumbnail!': '\\1'}
     return adjust_dict
 
 
 def getCommentString():
     return ' \n{} **@{}**: \n {} \n\n Erstellt: {} \n Updated: {} \n\n'
+
+
+def getCommentHeadline():
+    return ' \n #### Kommentare: \n '
 
 
 def getAttachmentString():
@@ -202,7 +206,7 @@ def checkAssigneeChanges(entry, assignee, issue_as_string):
         except Exception as inst:
             print_exception_details(entry, inst, issue_as_string)
     elif not assignee_mentioned:
-        assignee_string = getAssigneeString(getPictureString(default_avatar_url + assignee, assignee), assignee)
+        assignee_string = create_default_assignee_string(assignee)
     return assignee_string, assignee_mentioned
 
 
@@ -210,19 +214,25 @@ def checkAttachmentChanges(entry, issue_as_string):
     global attachment_string, attachments, attachment_included
     if entry.field == 'Attachment':
         try:
-            pictureString = entry.toString
-            pictureID = entry.to
-            attachmentObject = jira.attachment(pictureID)
-            pictureURL = attachmentObject.content
+            pictureString, pictureURL = get_attachment_data(entry)
             attachment_string = getPictureStringWithLink(pictureURL, pictureString)
             attachments.append(attachment_string)
             attachments = list(filter(None, attachments))
-            if len(attachments) != 0:
+            if len(attachments) > 0:
                 attachment_string = seperator.join(attachments)
                 attachment_included = True
         except Exception as inst:
             print_exception_details(entry, inst, issue_as_string)
     return attachment_string, attachment_included
+
+
+def get_attachment_data(entry):
+    pictureString = entry.toString
+    pictureID = entry.to
+    if pictureID is not None:
+        attachmentObject = jira.attachment(pictureID)
+        pictureURL = attachmentObject.content
+        return pictureString, pictureURL
 
 
 def checkDescriptionChanges(entry, issue_as_string, issue):
@@ -301,7 +311,7 @@ def checkForUpdates(historyItem, assignee, status, issue_as_string, issue):
 
 
 def init_global_vars():
-    global seperator, message, status_included, assignee_included, attachment_included, attachments, status_string, assignee_string, attachment_string, description_string, comments_string, ux_string, issueType_string, priority_string
+    global seperator, message, status_included, assignee_included, attachment_included, attachments, all_attachments, status_string, assignee_string, attachment_string, description_string, comments_string, ux_string, issueType_string, priority_string
     seperator = '___'
 
 
@@ -316,7 +326,7 @@ def init_mattermost_driver():
 
 
 def iterate_through_issues():
-    global message, status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string, attachment_included, comments_string, status_included, assignee_included, attachments
+    global message, status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string, attachment_included, comments_string, status_included, assignee_included, attachments, all_attachments
     for selectedIssue in jira.search_issues(webhook.projectSearchString, maxResults=webhook.maxResults,
                                             expand=webhook.expand):
         issue = jira.issue(str(selectedIssue))
@@ -328,25 +338,64 @@ def iterate_through_issues():
             priority_picture = getPictureString(issue.fields.priority.iconUrl, issue.fields.priority.name)
             issue_link = webhook.jqlQueryString + issue_as_string
             init_message_with_title(issue, issue_as_string, issue_link, priority_picture)
+            all_attachments = collect_all_attachments(issue_as_string, selectedIssue)
             iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status, issue)
+            description_string = link_attachments(all_attachments, description_string)
             append_string = construct_append_string(assignee_string, attachment_included, attachment_string,
                                                     description_string, issue, issueType_string, last_viewed_formatted,
-                                                    priority_string, status_string, ux_string)
+                                                    priority_string, status_string, ux_string, status_included, assignee_included, assignee, status)
             message = message + append_string
             sendMattermost(driver, message)
 
 
+def link_attachments(all_attachments, text):
+    for attachment in all_attachments:
+        try:
+            attachment_split = attachment.split("|")
+            picture_string = attachment_split[0]
+            picture_url = attachment_split[1]
+            text = re.compile(picture_string).sub("[{}]({})".format(picture_string, picture_url), text)
+        except Exception as inst:
+            print(inst.args)
+    return text
+
+
+def collect_all_attachments(issue_as_string, selectedIssue):
+    global all_attachments
+    all_attachments = []
+    for item in (history for history in selectedIssue.changelog.histories):
+        for entry in item.items:
+            if entry.field == 'Attachment':
+                try:
+                    if entry.to is not None:
+                        pictureString, pictureURL = get_attachment_data(entry)
+                        all_attachments.append("{}|{}".format(pictureString, pictureURL))
+                except Exception as inst:
+                    print_exception_details(entry, inst, issue_as_string)
+    return all_attachments
+
 def construct_append_string(assignee_string, attachment_included, attachment_string, description_string, issue,
-                            issueType_string, last_viewed_formatted, priority_string, status_string, ux_string):
+                            issueType_string, last_viewed_formatted, priority_string, status_string, ux_string, status_included, assignee_included, assignee, status):
     global comments_string
     if webhook.postComments:
         comments_string = checkNewComments(issue, last_viewed_formatted)
+        if comments_string != '':
+            comments_string = getCommentHeadline() + comments_string
     if attachment_included:
         append_attachment = getAttachmentString() + attachment_string
     else:
         append_attachment = ''
+    if not status_included:
+        status_string = getStatusString(status)
+    if not assignee_included:
+        assignee_string = create_default_assignee_string(assignee)
     append_string = priority_string + issueType_string + status_string + assignee_string + ux_string + description_string + comments_string + append_attachment
     return append_string
+
+
+def create_default_assignee_string(assignee):
+    assignee_string = getAssigneeString(getPictureString(default_avatar_url + assignee, assignee), assignee)
+    return assignee_string
 
 
 def iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status, issue):
@@ -367,12 +416,13 @@ def init_message_with_title(issue, issue_as_string, issue_link, priority_picture
 
 
 def reset_variables():
-    global status_string, assignee_string, attachment_string, description_string, comments_string, ux_string, issueType_string, priority_string, status_included, assignee_included, attachment_included, attachments
+    global status_string, assignee_string, attachment_string, description_string, comments_string, ux_string, issueType_string, priority_string, status_included, assignee_included, attachment_included, attachments, all_attachments
     status_string, assignee_string, attachment_string, description_string, comments_string, ux_string, issueType_string, priority_string = '', '', '', '', '', '', '', ''
     status_included = False
     assignee_included = False
     attachment_included = False
     attachments = []
+    all_attachments = []
 
 
 if __name__ == '__main__':
