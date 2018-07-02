@@ -42,7 +42,8 @@ def getAdjustDict():
                    '\(\*y\)': u'\u200b:star:\u200b',
                    '\n # ': '\n 1. ',
                    '(\![\w\-_\.äüö]+\.\w+\!)': '\\1',
-                   '!([\w\s\W]*\.\w+)\|thumbnail!': '\\1'}
+                   '!([\w\s\-_\+]*\.\w+)\|thumbnail!': '\\1',
+                   '!([\w\s\-_\+]*\.\w+)!': '\\1'}
     return adjust_dict
 
 
@@ -51,7 +52,7 @@ def getCommentString():
 
 
 def getCommentHeadline():
-    return ' \n #### Kommentare: \n '
+    return ' \n #### Kommentare:'
 
 
 def getAttachmentString():
@@ -354,7 +355,7 @@ def link_attachments(all_attachments, text):
             attachment_split = attachment.split("|")
             picture_string = attachment_split[0]
             picture_url = attachment_split[1]
-            text = re.compile(picture_string).sub("[{}]({})".format(picture_string, picture_url), text)
+            text = re.compile(picture_string).sub("[![{}]({})]({})".format(picture_string, picture_url, picture_url), text)
         except Exception as inst:
             print(inst.args)
     return text
