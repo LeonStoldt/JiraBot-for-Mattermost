@@ -1,6 +1,5 @@
 import sys
 from mattermostdriver import Driver
-from collections import Counter
 from jira import JIRA
 from datetime import datetime
 import urllib3
