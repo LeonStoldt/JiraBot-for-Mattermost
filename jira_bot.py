@@ -316,7 +316,7 @@ def init_global_vars():
 
 
 def init_jira():
-    jira = JIRA(webhook.jiraUrl, basic_auth=(webhook.username, webhook.password))
+    jira = JIRA(webhook.jiraUrl, auth=(webhook.username, webhook.password))
     return jira
 
 
@@ -327,25 +327,25 @@ def init_mattermost_driver():
 
 def iterate_through_issues():
     global message, status_string, assignee_string, attachment_string, description_string, ux_string, issueType_string, priority_string, attachment_included, comments_string, status_included, assignee_included, attachments, all_attachments
-    for selectedIssue in jira.search_issues(webhook.projectSearchString, maxResults=webhook.maxResults,
+    last_viewed_formatted = formatDate(lastViewed)
+    jira_timestamp = str(last_viewed_formatted)[:-3]
+    for selectedIssue in jira.search_issues(webhook.projectSearchString.format(jira_timestamp), maxResults=webhook.maxResults,
                                             expand=webhook.expand):
         issue = jira.issue(str(selectedIssue))
-        last_viewed_formatted = formatDate(lastViewed)
         assignee, status = getStatusAndAssignee(issue)
-        if formatDate(issue.fields.updated) > last_viewed_formatted:
-            issue_as_string = str(issue)
-            reset_variables()
-            priority_picture = getPictureString(issue.fields.priority.iconUrl, issue.fields.priority.name)
-            issue_link = webhook.jqlQueryString + issue_as_string
-            init_message_with_title(issue, issue_as_string, issue_link, priority_picture)
-            all_attachments = collect_all_attachments(issue_as_string, selectedIssue)
-            iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status, issue)
-            description_string = link_attachments(all_attachments, description_string)
-            append_string = construct_append_string(assignee_string, attachment_included, attachment_string,
-                                                    description_string, issue, issueType_string, last_viewed_formatted,
-                                                    priority_string, status_string, ux_string, status_included, assignee_included, assignee, status)
-            message = message + append_string
-            sendMattermost(driver, message)
+        issue_as_string = str(issue)
+        reset_variables()
+        priority_picture = getPictureString(issue.fields.priority.iconUrl, issue.fields.priority.name)
+        issue_link = webhook.jqlQueryString + issue_as_string
+        init_message_with_title(issue, issue_as_string, issue_link, priority_picture)
+        all_attachments = collect_all_attachments(issue_as_string, selectedIssue)
+        iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status, issue)
+        description_string = link_attachments(all_attachments, description_string)
+        append_string = construct_append_string(assignee_string, attachment_included, attachment_string,
+                                                description_string, issue, issueType_string, last_viewed_formatted,
+                                                priority_string, status_string, ux_string, status_included, assignee_included, assignee, status)
+        message = message + append_string
+        sendMattermost(driver, message)
 
 
 def link_attachments(all_attachments, text):
