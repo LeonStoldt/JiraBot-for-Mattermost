@@ -71,12 +71,16 @@ def getAssigneeChangedString(old_avatar_link, old_username, new_avatar_link, new
                                                                 new_username)
 
 
-def getDescriptionChangedString(description):
-    return '\n #### Beschreibung (verändert): \n {} \n'.format(description)
+def getDescriptionString(description, changed):
+    if changed:
+        changed_string = '(verändert)'
+    else:
+        changed_string = ''
+    return '\n #### Beschreibung {}: \n {} \n'.format(changed_string, description)
 
 
 def getUXDesignChangedString(link):
-    return '\n Folgendes UX Design wurde hinzugefügt: [click here]({})'.format(link)
+    return '\n #### Folgendes UX Design wurde hinzugefügt: [click here]({})'.format(link)
 
 
 def changeString(field, old, new):
@@ -240,7 +244,7 @@ def checkDescriptionChanges(entry, issue_as_string, issue):
     if entry.field == 'description':
         try:
             newDescription = adjustSyntax(issue.fields.description)
-            description_string = getDescriptionChangedString(newDescription)
+            description_string = getDescriptionString(newDescription, True)
         except Exception as inst:
             print_exception_details(entry, inst, issue_as_string)
     return description_string
@@ -337,15 +341,33 @@ def iterate_through_issues():
         reset_variables()
         priority_picture = getPictureString(issue.fields.priority.iconUrl, issue.fields.priority.name)
         issue_link = webhook.jqlQueryString + issue_as_string
-        init_message_with_title(issue, issue_as_string, issue_link, priority_picture)
         all_attachments = collect_all_attachments(issue_as_string, selectedIssue)
-        iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status, issue)
-        description_string = link_attachments(all_attachments, description_string)
-        append_string = construct_append_string(assignee_string, attachment_included, attachment_string,
-                                                description_string, issue, issueType_string, last_viewed_formatted,
-                                                priority_string, status_string, ux_string, status_included, assignee_included, assignee, status)
+        if formatDate(issue.fields.created) >= last_viewed_formatted:
+            append_string = collect_main_information(all_attachments, assignee, issue, issue_as_string, issue_link,
+                                                     priority_picture, status)
+        else:
+            init_message_with_title(issue, issue_as_string, issue_link, priority_picture)
+            iterate_through_changelog(assignee, issue_as_string, last_viewed_formatted, selectedIssue, status, issue)
+            description_string = link_attachments(all_attachments, description_string)
+            append_string = construct_append_string(assignee_string, attachment_included, attachment_string,
+                                                    description_string, issue, issueType_string, last_viewed_formatted,
+                                                    priority_string, status_string, ux_string, status_included, assignee_included, assignee, status)
         message = message + append_string
         sendMattermost(driver, message)
+
+
+def collect_main_information(all_attachments, assignee, issue, issue_as_string, issue_link, priority_picture, status):
+    global description_string, status_string, assignee_string
+    init_message_with_title(issue, issue_as_string, issue_link, ':new: ' + priority_picture)
+    if webhook.postDescription and issue.fields.description != '':
+        description_string = link_attachments(all_attachments, issue.fields.description)
+        description_string = getDescriptionString(description_string, False)
+    if webhook.postStatus:
+        status_string = getStatusString(status)
+    if webhook.postAssignee:
+        assignee_string = create_default_assignee_string(assignee)
+    append_string = status_string + assignee_string + description_string
+    return append_string
 
 
 def link_attachments(all_attachments, text):
