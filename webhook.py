@@ -4,7 +4,7 @@ token = 'replace_mattermost_token_of_bot' #TODO
 scheme = 'https'
 port = 443 # may replace Port or scheme
 verify = False
-channel = "replace_channel" #TODO
+channel = "replace_channel" #TODO | for posting messages to your private channel replace with an @ prefix (@name)
 botName = "JiraBot" # can change BotName
 
 # JIRA
